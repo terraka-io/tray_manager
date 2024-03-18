@@ -27,8 +27,6 @@ dev_dependencies:
 flutter:
   plugin:
     platforms:
-      linux:
-        pluginClass: TrayManagerPlugin
       macos:
         pluginClass: TrayManagerPlugin
       windows:
