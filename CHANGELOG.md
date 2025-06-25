@@ -1,3 +1,16 @@
+## 0.2.4
+
+* [windows][bug] fix the crash bug on windows targeting c++20 (#47)
+
+## 0.2.3
+
+* fix(macos): Fix app will crash when closing the tray. #44
+
+## 0.2.2
+
+* fix(linux): ensure icon works in sandboxed environments #43
+* Updates minimum supported SDK version to Flutter 3.3/Dart 3.0.
+
 ## 0.2.1
 
 * chore: Bump flutter to 3.6

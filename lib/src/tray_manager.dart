@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
-import 'package:menu_base/menu_base.dart';
-import 'package:path/path.dart' as path;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:menu_base/menu_base.dart';
+import 'package:path/path.dart' as path;
 import 'package:shortid/shortid.dart';
-
-import 'tray_listener.dart';
+import 'package:tray_manager/src/helpers/sandbox.dart';
+import 'package:tray_manager/src/tray_listener.dart';
 
 const kEventOnTrayIconMouseDown = 'onTrayIconMouseDown';
 const kEventOnTrayIconMouseUp = 'onTrayIconMouseUp';
@@ -29,7 +29,12 @@ class TrayManager {
 
   final MethodChannel _channel = const MethodChannel('tray_manager');
 
-  ObserverList<TrayListener> _listeners = ObserverList<TrayListener>();
+  final ObserverList<TrayListener> _listeners = ObserverList<TrayListener>();
+
+  double get _devicePixelRatio {
+    final flutterView = WidgetsBinding.instance.platformDispatcher.views.single;
+    return MediaQueryData.fromView(flutterView).devicePixelRatio;
+  }
 
   Menu? _menu;
 
@@ -54,7 +59,7 @@ class TrayManager {
           if (menuItem != null) {
             bool? oldChecked = menuItem.checked;
             if (menuItem.onClick != null) {
-              menuItem.onClick!(menuItem);
+              menuItem.onClick?.call(menuItem);
             }
             listener.onTrayMenuItemClick(menuItem);
 
@@ -90,25 +95,50 @@ class TrayManager {
   }
 
   /// Sets the image associated with this tray icon.
+  ///
+  /// [iconPath] is the path to the image file.
+  ///
+  /// However, if the app is running in a sandbox like Flatpak or Snap,
+  /// [iconPath] should be the name of the icon as specified in the app's
+  /// manifest file, without the path or file extension. For example, if the
+  /// icon is specified as `org.example.app` in the Flatpak manifest file, then
+  /// the icon should be passed as `org.example.app`.
   Future<void> setIcon(
     String iconPath, {
     bool isTemplate = false, // macOS only
     TrayIconPositon iconPosition = TrayIconPositon.left, // macOS only
   }) async {
-    ByteData imageData = await rootBundle.load(iconPath);
-    String base64Icon = base64Encode(imageData.buffer.asUint8List());
-
     final Map<String, dynamic> arguments = {
-      "id": shortid.generate(),
+      'id': shortid.generate(),
       'iconPath': path.joinAll([
         path.dirname(Platform.resolvedExecutable),
         'data/flutter_assets',
         iconPath,
       ]),
-      'base64Icon': base64Icon,
       'isTemplate': isTemplate,
       'iconPosition': iconPosition.name,
     };
+
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.linux:
+        if (runningInSandbox()) {
+          // Pass the icon name as specified if running in a sandbox.
+          //
+          // This is required because when running in a sandbox, paths are not
+          // the same as seen by the app and the host system.
+          arguments['iconPath'] = iconPath;
+        }
+        break;
+      case TargetPlatform.macOS:
+        // Add the icon as base64 string
+        ByteData imageData = await rootBundle.load(iconPath);
+        String base64Icon = base64Encode(imageData.buffer.asUint8List());
+        arguments['base64Icon'] = base64Icon;
+        break;
+      default:
+        break;
+    }
+
     await _channel.invokeMethod('setIcon', arguments);
   }
 
@@ -123,6 +153,12 @@ class TrayManager {
   }
 
   /// Sets the hover text for this tray icon.
+  ///
+  /// Must be called after the icon is set.
+  /// ```dart
+  /// await trayManager.setIcon(...);
+  /// await trayManager.setToolTip(...);
+  /// ```
   Future<void> setToolTip(String toolTip) async {
     final Map<String, dynamic> arguments = {
       'toolTip': toolTip,
@@ -155,7 +191,7 @@ class TrayManager {
   /// The bounds of this tray icon.
   Future<Rect?> getBounds() async {
     final Map<String, dynamic> arguments = {
-      'devicePixelRatio': window.devicePixelRatio,
+      'devicePixelRatio': _devicePixelRatio,
     };
     final Map<dynamic, dynamic>? resultData = await _channel.invokeMethod(
       'getBounds',
